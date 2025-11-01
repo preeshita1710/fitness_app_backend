@@ -12,7 +12,7 @@ const app = express();
 app.use(express.json());
 app.use(
   cors({
-    origin: "http://localhost:5173", // frontend URL
+    origin: process.env.FRONTEND_URL || "http://localhost:5173", // ✅ local + Render
     methods: ["GET", "POST", "PUT", "DELETE"],
     credentials: true,
   })
@@ -20,12 +20,17 @@ app.use(
 
 // --- PostgreSQL connection ---
 const pool = new Pool({
-  user: process.env.DB_USER || "postgres",
-  host: process.env.DB_HOST || "localhost",
-  database: process.env.DB_NAME || "fitness_app",
-  password: process.env.DB_PASSWORD || "yourpassword",
-  port: process.env.DB_PORT || 5432,
+  connectionString: process.env.DATABASE_URL,
+  ssl: {
+    require: true, // ✅ Required for Render PostgreSQL
+    rejectUnauthorized: false,
+  },
 });
+
+// --- Test DB connection on startup ---
+pool.connect()
+  .then(() => console.log("✅ Connected to PostgreSQL database successfully!"))
+  .catch((err) => console.error("❌ Database connection failed:", err.message));
 
 // --- Initialize OpenAI client ---
 const openai = new OpenAI({
@@ -37,7 +42,7 @@ app.get("/", (req, res) => {
   res.json({ message: "🏋️‍♀️ Fitness App Backend is running!" });
 });
 
-// --- Test PostgreSQL connection ---
+// --- Test DB Endpoint ---
 app.get("/api/test-db", async (req, res) => {
   try {
     const result = await pool.query("SELECT NOW()");
@@ -46,7 +51,7 @@ app.get("/api/test-db", async (req, res) => {
       time: result.rows[0].now,
     });
   } catch (err) {
-    console.error("❌ Database connection error:", err);
+    console.error("❌ Database test error:", err.message);
     res.status(500).json({ error: "Database connection failed" });
   }
 });
@@ -57,6 +62,7 @@ app.get("/api/users", async (req, res) => {
     const result = await pool.query("SELECT * FROM users");
     res.json(result.rows);
   } catch (err) {
+    console.error("❌ Users API error:", err.message);
     res.status(500).json({ error: "Database error" });
   }
 });
@@ -67,6 +73,7 @@ app.get("/api/workouts", async (req, res) => {
     const result = await pool.query("SELECT * FROM workouts");
     res.json(result.rows);
   } catch (err) {
+    console.error("❌ Workouts API error:", err.message);
     res.status(500).json({ error: "Database error" });
   }
 });
@@ -77,6 +84,7 @@ app.get("/api/consultations", async (req, res) => {
     const result = await pool.query("SELECT * FROM consultations");
     res.json(result.rows);
   } catch (err) {
+    console.error("❌ Consultations API error:", err.message);
     res.status(500).json({ error: "Database error" });
   }
 });
@@ -87,6 +95,7 @@ app.get("/api/payments", async (req, res) => {
     const result = await pool.query("SELECT * FROM payments");
     res.json(result.rows);
   } catch (err) {
+    console.error("❌ Payments API error:", err.message);
     res.status(500).json({ error: "Database error" });
   }
 });
@@ -100,7 +109,6 @@ app.post("/api/analyze-ingredients", async (req, res) => {
       return res.status(400).json({ error: "Ingredients text is required" });
     }
 
-    // AI prompt for ingredient analysis
     const prompt = `
 You are a nutritionist AI. Analyze the following ingredients:
 "${ingredients}"
@@ -114,7 +122,6 @@ Provide:
 Return the answer in a friendly, readable format.
 `;
 
-    // Send to OpenAI
     const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [{ role: "user", content: prompt }],
@@ -122,27 +129,22 @@ Return the answer in a friendly, readable format.
     });
 
     const analysis = completion.choices[0].message.content;
-
     res.json({ analysis });
   } catch (err) {
-    console.error("❌ Error in AI analysis:", err);
+    console.error("❌ Error in AI analysis:", err.message);
     res.status(500).json({ error: "Failed to analyze ingredients" });
   }
 });
-
-// --- Function to test DB on server start ---
-const testDBConnection = async () => {
-  try {
-    const result = await pool.query("SELECT NOW()");
-    console.log("✅ Connected to PostgreSQL at:", result.rows[0].now);
-  } catch (err) {
-    console.error("❌ Database connection failed:", err.message);
-  }
-};
 
 // --- Start server ---
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, async () => {
   console.log(`🚀 Server running on port ${PORT}`);
-  await testDBConnection();
+  try {
+    const result = await pool.query("SELECT NOW()");
+    console.log("✅ PostgreSQL connected at:", result.rows[0].now);
+  } catch (err) {
+    console.error("❌ Database test on startup failed:", err.message);
+  }
 });
+8
